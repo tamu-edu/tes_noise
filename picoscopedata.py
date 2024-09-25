@@ -22,13 +22,13 @@ class PicoscopeData:
         if os.path.isfile(self.config_file):
             self.config = pd.read_csv(self.config_file, index_col = 0, header = None).to_dict()[1]
         else:
-            raise Exception(f'No config file for {self.traces_file}')
+            raise Exception(f'No config file for {self.config_file}')
 
         # read trace file(s)
         if idx is None:
             self.trace_file = f'{data_dir}/{fbase}.csv'
         elif hasattr(idx, '__iter__'):
-            self.trace_file = lambda i: f'{data_dir}/{fbase}_{i}.csv'
+            self.trace_file = lambda i: f'{data_dir}/{fbase}_' + str(i).rjust(int(np.ceil(np.log10(len(idx)))), '0') + '.csv'
 
             try:
 
