@@ -1,0 +1,8 @@
+amp,20e-3
+freq,100
+rsh,20e-3
+offa,80.1
+offb,65.
+offc,69.8
+offd,58.1
+gain,50
