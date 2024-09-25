@@ -7,11 +7,14 @@ import os
 
 class PicoscopeData: 
 
-    def __init__(self, fbase, data_dir, idx = None, shift_times = True):
+    def __init__(self, fbase, data_dir, idx = None, shift_times = True, vertical_stack = False):
         """
         shift_time - if True, add shifts to portions of 'Time' column so that column is monotonically increasing
+
+        vertical_stack: stack data into (nfiles x nsamples arrays in self.arrs)
         """
 
+        self.vstack = vertical_stack
 
         # read configuration info
         self.config_file = f'{data_dir}/{fbase}_config.txt'
@@ -29,7 +32,29 @@ class PicoscopeData:
 
             try:
 
-                self.traces_df = pd.concat([pd.read_csv(self.trace_file(i), skiprows = (1,2)) for i in idx])
+                if self.vstack:
+
+                    self.arrs = {}
+
+                    for i, ix in enumerate(idx):
+
+                        df = pd.read_csv(self.trace_file(ix), skiprows = (1,2))
+
+                        if i == 0:
+                            self.ts = df['Time'].values/1e3 # seconds
+
+                        for chan in 'ABCDH':
+
+                            if chan not in self.arrs:
+                                self.arrs[chan] = np.zeros((len(idx), len(df)))
+                            
+                            self.arrs[chan][i,:] = df[f'Channel {chan}'].values
+                            
+
+
+                else:
+
+                    self.traces_df = pd.concat([pd.read_csv(self.trace_file(i), skiprows = (1,2)) for i in idx])
 
 
             except Exception as e:
@@ -46,7 +71,7 @@ class PicoscopeData:
 
 
         # take out time array
-        if 'Time' in self.traces_df.keys():
+        if not self.vstack and 'Time' in self.traces_df.keys():
             self.ts = self.traces_df['Time'].values/1e3 # seconds
 
             if shift_times:
@@ -57,13 +82,14 @@ class PicoscopeData:
                     self.ts[j+1:] += self.ts[j]
 
 
-
-
     def __call__(self, chan):
-        chan_name = f'Channel {chan}'
-        if chan_name in self.traces_df.keys():
-            return self.traces_df[chan_name].values
+        if self.vstack:
+            return self.arrs[chan]
         else:
-            raise Exception(f'No channel {chan}')
+            chan_name = f'Channel {chan}'
+            if chan_name in self.traces_df.keys():
+                return self.traces_df[chan_name].values
+            else:
+                raise Exception(f'No channel {chan}')
 
 
