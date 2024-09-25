@@ -1,0 +1,5 @@
+amp,2
+freq,10e-3
+rsh,20e-3
+off,0.
+gain,1.
