@@ -1,0 +1,4 @@
+freq,5.5
+amp,3.4
+offset,0.001
+rsh,20e-3
