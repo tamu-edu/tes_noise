@@ -93,3 +93,21 @@ class PicoscopeData:
                 raise Exception(f'No channel {chan}')
 
 
+# signal conversion notes
+# 
+# picoscope measures voltage
+# 
+# channel H - signal gen to picoscope
+# signal gen generates waveform of specified voltage
+# chanH = measured voltage through picoscope hooked directly up to second line of picoscope
+# chanH = Ibias x 100
+# 
+# channel ABCD - output from SQUIDs
+# voltage through picoscope = I_TES x 1.2kOhm x 10 (SQUID gain) x 50 (digital gain) x 2 (?)
+# so current through TES line with some gain & polarity
+# = chan(ABCD)/(1.2e3*10*50*2)
+
+
+
+
+
