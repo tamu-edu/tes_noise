@@ -38,5 +38,5 @@ def find_folder(folder, *candidates):
 
     for candidate in candidates:
         if _os.path.isdir(candidate) and folder in _os.listdir(candidate):
-            return folder
+            return candidate
 
