@@ -85,6 +85,8 @@ class PicoscopeData:
                 raise Exception(f'Tried to do list-like PicoscopeData initialization. Raised {e}')
         else:
             self.trace_file = f'{data_dir}/{fbase}_{idx}.csv'
+
+            self.conv = PicoscopeData.__get_conv__(self.trace_file)
             
             if os.path.isfile(self.trace_file):
 
@@ -104,6 +106,11 @@ class PicoscopeData:
 
                 for j in backward_jumps:
                     self.ts[j+1:] += self.ts[j]
+
+        try:
+            self.N = len(self.ts)
+        except: 
+            pass
 
 
     def __call__(self, chan):
