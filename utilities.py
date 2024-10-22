@@ -40,3 +40,17 @@ def find_folder(folder, *candidates):
         if _os.path.isdir(candidate) and folder in _os.listdir(candidate):
             return candidate
 
+
+
+
+def to_ADC(x, config = None):
+    if config and 'gain' in config:
+        Gdigital = config['gain']
+    else:
+        Gdigital = 50
+    Gsquid = 10 # squid gain (10 loops)
+    Rfdbck = 1.2e3 # feedback resistor
+    return x/(Rfdbck*Gsquid*Gdigital)
+
+def to_ibias(x):
+    return x/1.2e3
