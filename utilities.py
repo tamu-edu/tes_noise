@@ -58,6 +58,13 @@ def find_folder(folder, *candidates):
 
 
 def to_ADC(x, config = None):
+    """
+    function to return ADC current from x, the input voltage read by picoscope
+
+    optional argument 'config' should have config['gain'] equal to the SQUID gain (default: 50)
+
+    function assumes 10x SQUID pickup gain and feedback resistance of 1.2 kOhm
+    """
     if config and 'gain' in config:
         Gdigital = config['gain']
     else:
@@ -66,5 +73,14 @@ def to_ADC(x, config = None):
     Rfdbck = 1.2e3 # feedback resistor
     return x/(Rfdbck*Gsquid*Gdigital)
 
-def to_ibias(x):
-    return x/1.2e3
+def to_ibias(x, n = 4):
+    """
+    function to return bias current based on voltage measured by picoscope directly wired to output
+
+    function assumes 1 kOhm resistance along each channel and 50-Ohm terminated source
+
+    inputs:
+        x - measured voltage by picoscope
+        n - number of channels connected when measuring
+    """
+    return x/(2*(50 + 1e3/n))
