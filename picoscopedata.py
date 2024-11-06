@@ -48,6 +48,15 @@ class PicoscopeData:
 
             self.conv = PicoscopeData.__get_conv__(self.trace_file)
 
+            if os.path.isfile(self.trace_file):
+
+                self.traces_df = pd.read_csv(self.trace_file, skiprows = (1,2))
+
+            else:
+                raise Exception(f'could not find {self.trace_file}')
+
+
+
                 
         elif hasattr(idx, '__iter__'):
             self.trace_file = lambda i: f'{data_dir}/{fbase}_' + str(i).rjust(int(np.ceil(np.log10(len(idx)))), '0') + '.csv'
