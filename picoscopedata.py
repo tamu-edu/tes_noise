@@ -118,8 +118,11 @@ class PicoscopeData:
 
         try:
             self.N = len(self.ts)
+
         except: 
             pass
+
+        print(f'Created new PicoscopeData object with {self.N} data points\nChannels: {list(self.conv.keys())}')
 
 
     def __call__(self, chan):
@@ -131,6 +134,21 @@ class PicoscopeData:
                 return self.conv[chan]*self.traces_df[chan_name].values
             else:
                 raise Exception(f'No channel {chan}')
+
+    def resize(self, start, stop, step = 1):
+        """
+        resize data arrays, i.e., by array[start:stop:step]
+        """
+        keep = slice(start,stop,step)
+        if self.vstack:
+            for k in self.arrs:
+                self.arrs[k] = self.arrs[k][keep]
+            self.ts = self.ts[keep]
+            self.N = self.ts.size
+        else:
+            self.traces_df = self.traces_df[keep]
+            self.ts = self.traces_df['Time'].values/1e3
+            self.N = self.ts.size
 
 
 # signal conversion notes
