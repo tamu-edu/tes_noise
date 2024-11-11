@@ -33,6 +33,7 @@ class PicoscopeData:
         """
 
         self.vstack = vertical_stack
+        self.channels = None
 
         # read configuration info
         self.config_file = f'{data_dir}/{fbase}_config.txt'
@@ -52,10 +53,10 @@ class PicoscopeData:
 
                 self.traces_df = pd.read_csv(self.trace_file, skiprows = (1,2))
 
+                self.__get_channels__(self.traces_df)
+
             else:
                 raise Exception(f'could not find {self.trace_file}')
-
-
 
                 
         elif hasattr(idx, '__iter__'):
@@ -75,8 +76,9 @@ class PicoscopeData:
 
                         if i == 0:
                             self.ts = df['Time'].values/1e3 # seconds
+                            self.__get_channels__(df)
 
-                        for chan in 'ABCDH':
+                        for chan in self.channels:
 
                             if chan not in self.arrs:
                                 self.arrs[chan] = np.zeros((len(idx), len(df)))
@@ -89,6 +91,8 @@ class PicoscopeData:
 
                     self.traces_df = pd.concat([pd.read_csv(self.trace_file(i), skiprows = (1,2)) for i in idx])
 
+                    self.__get_channels__(self.traces_df)
+
 
             except Exception as e:
                 raise Exception(f'Tried to do list-like PicoscopeData initialization. Raised {e}')
@@ -100,6 +104,7 @@ class PicoscopeData:
             if os.path.isfile(self.trace_file):
 
                 self.traces_df = pd.read_csv(self.trace_file, skiprows = (1,2))
+                self.__get_channels__(self.traces_df)
 
             else:
                 raise Exception(f'could not find {self.trace_file}')
@@ -122,7 +127,7 @@ class PicoscopeData:
         except: 
             pass
 
-        print(f'Created new PicoscopeData object with {self.N} data points\nChannels: {list(self.conv.keys())}')
+        print(f'Created new PicoscopeData object with {self.N} data points\nChannels: {self.channels}')
 
 
     def __call__(self, chan):
@@ -134,6 +139,14 @@ class PicoscopeData:
                 return self.conv[chan]*self.traces_df[chan_name].values
             else:
                 raise Exception(f'No channel {chan}')
+
+    def __get_channels__(self, df):
+        self.channels = []
+        for key in df.keys():
+            if 'Channel' in key:
+                x = key.split()[1]
+                if key == f'Channel {x}':
+                    self.channels.append(x)
 
     def resize(self, start, stop, step = 1):
         """
