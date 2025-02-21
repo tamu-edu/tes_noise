@@ -84,3 +84,18 @@ def to_ibias(x, n = 4):
         n - number of channels connected when measuring
     """
     return x/(2*(50 + 1e3/n))
+
+
+
+def get_Rp(Ib, I_super, Rs = 20e-3):
+    """
+    return parasitic resistance from bias current Ib, superconducting current I_super, with shunt resistor Rs (default 20 mOhm)
+    """
+    return Rs*(Ib/I_super - 1 )
+
+def get_Rn(Ib, I_super, I_normal, Rs = 20e-3):
+    """
+    return normal resistance from bias current Ib, superconducting current I_super, with shunt resistor Rs (default 20 mOhm)
+    """
+    Rp = get_Rp(Ib, I_super, Rs)
+    return Rs*(Ib/I_normal - 1 ) - Rp
