@@ -3,7 +3,36 @@
 import numpy as np
 import pandas as pd
 import os
+import glob
+from utilities import to_ADC
 
+x_left = [2500 + i * 10_000 for i in range(10)]
+x_right = [7500 + i * 10_000 for i in range(10)]
+
+def good_trace(trace, chan):
+    sa = trace[2500]
+    sb = trace[7500]
+    s1, s2 = sorted((sa, sb))
+    p2 = trace[:7500].max()
+    p1 = trace[:7500].min()
+
+    SA = trace[x_left]
+    SB = trace[x_right]
+
+    DSB = np.mean(np.abs(SB - SA))
+    DSstd = np.std(SB - SA)
+
+    slope_left = np.polyfit(x_left, SA, 1)[0]
+    slope_right = np.polyfit(x_right, SB, 1)[0]
+
+    boolean = {
+        "A": (s2 - s1 > 0.55) and (abs(slope_right) < 2.5e-6),
+        "B": (s2 - s1 < 3) and (abs(s1+s2)/2 < 0.1) and (abs(slope_right) < 2e-6),
+        "C": (s2 - s1 > 0.25) and (abs(slope_right) < 2.5e-6),
+        "D": (s2 - s1 > 2.5) and (abs(slope_right) < 5e-6)
+    }
+
+    return boolean[chan]
 
 class PicoscopeData: 
 
@@ -25,15 +54,18 @@ class PicoscopeData:
         return conv     
 
 
-    def __init__(self, fbase, data_dir, idx = None, shift_times = True, vertical_stack = False):
+    def __init__(self, fbase, data_dir, idx = None, shift_times = True, vertical_stack = False, glob_pattern = None, row_avg = 0, throw_nans = False):
         """
         shift_time - if True, add shifts to portions of 'Time' column so that column is monotonically increasing
 
         vertical_stack: stack data into (nfiles x nsamples arrays in self.arrs)
+
+        row_avg: if vstack, average rows in bundles of row_avg 
         """
 
         self.vstack = vertical_stack
         self.channels = None
+        self.row_avg = row_avg
 
         # read configuration info
         self.config_file = f'{data_dir}/{fbase}_config.txt'
@@ -51,7 +83,7 @@ class PicoscopeData:
 
             if os.path.isfile(self.trace_file):
 
-                self.traces_df = pd.read_csv(self.trace_file, skiprows = (1,2))
+                self.traces_df = pd.read_csv(self.trace_file, skiprows = (1,2), na_values = ["∞", "-∞"])
 
                 self.__get_channels__(self.traces_df)
 
@@ -60,38 +92,89 @@ class PicoscopeData:
 
                 
         elif hasattr(idx, '__iter__'):
-            self.trace_file = lambda i: f'{data_dir}/{fbase}_' + str(i).rjust(int(np.ceil(np.log10(len(idx)))), '0') + '.csv'
+            if glob_pattern:
+                files = glob.glob(glob_pattern)
+                self.trace_file = lambda i: files[i]
+                print('collecting', len(files), 'files with glob')
+            else:
+                self.trace_file = lambda i: f'{data_dir}/{fbase}_' + str(i).rjust(int(np.ceil(np.log10(len(idx)))), '0') + '.csv'
 
             self.conv = PicoscopeData.__get_conv__(self.trace_file(list(idx)[0]))
 
             try:
 
-                if self.vstack:
+                if throw_nans:
 
-                    self.arrs = {}
+                    df = pd.read_csv(self.trace_file(idx[0]), skiprows = (1,2), na_values = ["∞", "-∞"]) 
+                    self.ts = df['Time'].values/1e3 # seconds
+                    self.__get_channels__(df)
+
+                    self.arrs = {chan: [] for chan in self.channels}
+
+                    self.arrs['H'] = df['Channel H'].values
+
+                    thisrow = {chan: self.row_avg for chan in self.channels}
 
                     for i, ix in enumerate(idx):
 
-                        df = pd.read_csv(self.trace_file(ix), skiprows = (1,2))
+                        df = pd.read_csv(self.trace_file(ix), skiprows = (1,2), na_values = ["∞", "-∞"])                        
+                    
 
-                        if i == 0:
-                            self.ts = df['Time'].values/1e3 # seconds
-                            self.__get_channels__(df)
+                        for chan in self.channels:
+                            if thisrow[chan] == self.row_avg and chan != 'H':
+                                self.arrs[chan].append(np.zeros(len(df)))
+                                thisrow[chan] = 0
 
                         for chan in self.channels:
 
-                            if chan not in self.arrs:
-                                self.arrs[chan] = np.zeros((len(idx), len(df)))
-                            
-                            self.arrs[chan][i,:] = df[f'Channel {chan}'].values
-                            
+                            trace = df[f'Channel {chan}'].values
+                            if (chan != 'H') and (not any(np.isnan(trace))) and good_trace(trace, chan):
+                                self.arrs[chan][-1] += trace
+                                thisrow[chan] += 1
+
+                    for chan in self.channels:
+                        if chan != 'H':
+                            if thisrow[chan] < self.row_avg:
+                                self.arrs[chan].pop(-1)
+
+                            self.arrs[chan] = to_ADC(np.array(self.arrs[chan])/self.row_avg, self.config)
 
 
                 else:
 
-                    self.traces_df = pd.concat([pd.read_csv(self.trace_file(i), skiprows = (1,2)) for i in idx])
+                    if self.vstack:
 
-                    self.__get_channels__(self.traces_df)
+                        self.arrs = {}
+
+                        for i, ix in enumerate(idx):
+                            
+                            df = pd.read_csv(self.trace_file(ix), skiprows = (1,2), na_values = ["∞", "-∞"])
+
+                            if i == 0:
+                                self.ts = df['Time'].values/1e3 # seconds
+                                self.__get_channels__(df)
+
+                            for chan in self.channels:
+
+                                if chan not in self.arrs:
+                                    if self.row_avg < 1:
+                                        self.arrs[chan] = np.zeros((len(idx), len(df)))
+                                        self.rownum = 1
+                                    else:
+                                        self.rownum = int(len(idx)//row_avg)
+                                        self.arrs[chan] = np.zeros((self.rownum, len(df)))
+                                
+                                if i//self.row_avg < self.rownum:
+                                    trace = df[f'Channel {chan}'].values/self.row_avg
+                                    nans = np.isnan(trace)
+
+                                    self.arrs[chan][i//self.row_avg][~nans] += trace[~nans]
+
+                    else:
+
+                        self.traces_df = pd.concat([pd.read_csv(self.trace_file(i), skiprows = (1,2)) for i in idx])
+
+                        self.__get_channels__(self.traces_df)
 
 
             except Exception as e:
@@ -127,12 +210,22 @@ class PicoscopeData:
         except: 
             pass
 
+        if self.vstack:
+            for chan in self.arrs:
+                try:
+                    self.arrs[chan] *= self.conv[chan]
+                except KeyError: # chan not in self.conv
+                    pass
+                except Exception as e:
+                    print(self.conv)
+                    raise Exception(e)
+
         print(f'Created new PicoscopeData object with {self.N} data points\nChannels: {self.channels}')
 
 
     def __call__(self, chan):
         if self.vstack:
-            return self.conv[chan]*self.arrs[chan]
+            return self.arrs[chan]
         else:
             chan_name = f'Channel {chan}'
             if chan_name in self.traces_df.keys():
