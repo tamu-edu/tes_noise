@@ -24,7 +24,7 @@ def find_imports(maxdepth = 2):
         if 'QETpy' in _os.listdir(checkdir):
             _sys.path.append(checkdir + '/QETpy')
             qp_found = True        
-        if 'QETpy' in _os.listdir(checkdir):
+        if 'optimal_filter' in _os.listdir(checkdir):
             _sys.path.append(checkdir + '/optimal_filter')
             of_found = True
 
@@ -73,17 +73,30 @@ def to_ADC(x, config = None):
     Rfdbck = 1.2e3 # feedback resistor
     return x/(Rfdbck*Gsquid*Gdigital)
 
-def to_ibias(x, n = 4):
+def pico_to_ibias(x, n = 4):
     """
     function to return bias current based on voltage measured by picoscope directly wired to output
 
     function assumes 1 kOhm resistance along each channel and 50-Ohm terminated source
 
     inputs:
-        x - measured voltage by picoscope
+        x - Vpp displayed in picoscope
         n - number of channels connected when measuring
     """
-    return x/(2*(50 + 1e3/n))
+    return x/(n*50 + 1e3)
+
+
+def func_to_ibias(x, n = 4):
+    """
+    function to return bias current based on voltage displayed on function generator
+
+    function assumes 1 kOhm resistance along each channel and 50-Ohm terminated source
+
+    inputs:
+        x - Vpp displayed in function generator
+        n - number of channels connected when measuring
+    """
+    return 2*x/(n*50 + 1e3)
 
 
 
