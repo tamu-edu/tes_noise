@@ -229,7 +229,7 @@ class PicoscopeData:
         else:
             chan_name = f'Channel {chan}'
             if chan_name in self.traces_df.keys():
-                return self.conv[chan]*self.traces_df[chan_name].values
+                return to_ADC(self.conv[chan]*self.traces_df[chan_name].values, self.config)
             else:
                 raise Exception(f'No channel {chan}')
 
