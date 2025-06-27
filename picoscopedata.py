@@ -4,12 +4,14 @@ import numpy as np
 import pandas as pd
 import os
 import glob
-from utilities import to_ADC
+from utilities import to_ADC, pico_to_ibias
 
 x_left = [2500 + i * 10_000 for i in range(10)]
 x_right = [7500 + i * 10_000 for i in range(10)]
 
 def good_trace(trace, chan):
+    if 1:
+        return True
     sa = trace[2500]
     sb = trace[7500]
     s1, s2 = sorted((sa, sb))
@@ -35,38 +37,35 @@ def good_trace(trace, chan):
     return boolean[chan]
 
 class PicoscopeData: 
+    """
+    class to read .csv files output by picoscope
 
-    @staticmethod
-    def __get_conv__(filename):
-        # conversions to V
-        with open(filename, 'r') as f:
-            for i, l in enumerate(f):
-                if i ==0:
-                    header = l.split(',')
-                    
-                elif i == 1:
-                    units = [s.strip().strip('(').strip(')').strip() for s in l.split(',')]
-                    break
+    NOTE: requires config file at "{data_dir}/{fbase}_config.txt"
 
-        channels = [c.split()[1][0] if 'Channel' in c else '' for c in header]
+    NOTE: assumes all data files have the same shape (number of channels/number of data points) and units
 
-        conv = {c: (1. if u == 'V' else 1e-3 if u == 'mV' else 0.) for c, u in zip(channels, units)}
-        return conv     
+    NOTE: assumes sigchan (signal generator) signal has integer multiple frequency of sampling frequency
 
+    constructor arguments:
+        fbase: string present in base of all filenames (i.e., runnum)
+        data_dir: innermost directory containing all data files
+        glob_pattern (optional): pattern for glob to find all data files (default: {data_dir}*{fbase}*.csv)
+        row_avg (int, optional): average rows in bundles of row_avg (default 1, no averaging)
+        sigchan (optional): channel of signal generator input to picoscope (will use utilities.pico_to_ibias instead of utilities.to_ADC) (default 'H') (set sigchan = None to disable)
+    
+    attributes:
+        config_file: file containing configuration info
+        config: dictionary of config data kept in self.config_file
+        arrs: dictionary of data arrays, indexed by channel name (A-H) [amps] (shape something like (Nfiles//row_avg, N) depending on cuts)
+        channels: list of channels (not including sigchan) contained in data arrays
+        file_list: list of filenames returned by glob pattern
+        row_avg: row averaging (see constructor)
+        ts: array of time series data [sec]
+        N: number of 
+    """
 
-    def __init__(self, fbase, data_dir, idx = None, shift_times = True, vertical_stack = False, glob_pattern = None, row_avg = 0, throw_nans = False):
-        """
-        shift_time - if True, add shifts to portions of 'Time' column so that column is monotonically increasing
-
-        vertical_stack: stack data into (nfiles x nsamples arrays in self.arrs)
-
-        row_avg: if vstack, average rows in bundles of row_avg 
-        """
-
-        self.vstack = vertical_stack
-        self.channels = None
-        self.row_avg = row_avg
-
+    def __init__(self, fbase, data_dir, glob_pattern = None, row_avg = 0, sigchan = 'H'):
+        
         # read configuration info
         self.config_file = f'{data_dir}/{fbase}_config.txt'
 
@@ -75,187 +74,110 @@ class PicoscopeData:
         else:
             raise Exception(f'No config file for {self.config_file}')
 
-        # read trace file(s)
-        if idx is None:
-            self.trace_file = f'{data_dir}/{fbase}.csv'
+        self.channels = None
+        self.file_list = []
+        self.sigchan = sigchan
+        self.row_avg = max((row_avg, 1))
 
-            self.conv = PicoscopeData.__get_conv__(self.trace_file)
+        # collect files
+        if glob_pattern is None:
+            glob_pattern = data_dir + '*' + fbase + '*.csv'
 
-            if os.path.isfile(self.trace_file):
-
-                self.traces_df = pd.read_csv(self.trace_file, skiprows = (1,2), na_values = ["∞", "-∞"])
-
-                self.__get_channels__(self.traces_df)
-
-            else:
-                raise Exception(f'could not find {self.trace_file}')
-
+        self.glob_pattern = glob_pattern
                 
-        elif hasattr(idx, '__iter__'):
-            if glob_pattern:
-                files = glob.glob(glob_pattern)
-                self.trace_file = lambda i: files[i]
-                print('collecting', len(files), 'files with glob')
-            else:
-                self.trace_file = lambda i: f'{data_dir}/{fbase}_' + str(i).rjust(int(np.ceil(np.log10(len(idx)))), '0') + '.csv'
-
-            self.conv = PicoscopeData.__get_conv__(self.trace_file(list(idx)[0]))
-
-            try:
-
-                if throw_nans:
-
-                    df = pd.read_csv(self.trace_file(idx[0]), skiprows = (1,2), na_values = ["∞", "-∞"]) 
-                    self.ts = df['Time'].values/1e3 # seconds
-                    self.__get_channels__(df)
-
-                    self.arrs = {chan: [] for chan in self.channels}
-
-                    self.arrs['H'] = df['Channel H'].values
-
-                    thisrow = {chan: self.row_avg for chan in self.channels}
-
-                    for i, ix in enumerate(idx):
-
-                        df = pd.read_csv(self.trace_file(ix), skiprows = (1,2), na_values = ["∞", "-∞"])                        
-                    
-
-                        for chan in self.channels:
-                            if thisrow[chan] == self.row_avg and chan != 'H':
-                                self.arrs[chan].append(np.zeros(len(df)))
-                                thisrow[chan] = 0
-
-                        for chan in self.channels:
-
-                            trace = df[f'Channel {chan}'].values
-                            if (chan != 'H') and (not any(np.isnan(trace))) and good_trace(trace, chan):
-                                self.arrs[chan][-1] += trace
-                                thisrow[chan] += 1
-
-                    for chan in self.channels:
-                        if chan != 'H':
-                            if thisrow[chan] < self.row_avg:
-                                self.arrs[chan].pop(-1)
-
-                            self.arrs[chan] = to_ADC(np.array(self.arrs[chan])/self.row_avg, self.config)
-
-
-                else:
-
-                    if self.vstack:
-
-                        self.arrs = {}
-
-                        for i, ix in enumerate(idx):
-                            
-                            df = pd.read_csv(self.trace_file(ix), skiprows = (1,2), na_values = ["∞", "-∞"])
-
-                            if i == 0:
-                                self.ts = df['Time'].values/1e3 # seconds
-                                self.__get_channels__(df)
-
-                            for chan in self.channels:
-
-                                if chan not in self.arrs:
-                                    if self.row_avg < 1:
-                                        self.arrs[chan] = np.zeros((len(idx), len(df)))
-                                        self.rownum = 1
-                                    else:
-                                        self.rownum = int(len(idx)//row_avg)
-                                        self.arrs[chan] = np.zeros((self.rownum, len(df)))
-                                
-                                if i//self.row_avg < self.rownum:
-                                    trace = df[f'Channel {chan}'].values/self.row_avg
-                                    nans = np.isnan(trace)
-
-                                    self.arrs[chan][i//self.row_avg][~nans] += trace[~nans]
-
-                    else:
-
-                        self.traces_df = pd.concat([pd.read_csv(self.trace_file(i), skiprows = (1,2)) for i in idx])
-
-                        self.__get_channels__(self.traces_df)
-
-
-            except Exception as e:
-                raise Exception(f'Tried to do list-like PicoscopeData initialization. Raised {e}')
+        self.file_list = glob.glob(self.glob_pattern)
+        self.Nfiles = len(self.file_list)
+        if self.Nfiles:
+            print(f'collecting {self.Nfiles} files with glob')
         else:
-            self.trace_file = f'{data_dir}/{fbase}_{idx}.csv'
+            raise Exception(f'{self.Nfiles} files found with glob pattern {self.glob_pattern}')
 
-            self.conv = PicoscopeData.__get_conv__(self.trace_file)
-            
-            if os.path.isfile(self.trace_file):
+        self.__get_channels__(self.file_list[0])
 
-                self.traces_df = pd.read_csv(self.trace_file, skiprows = (1,2))
-                self.__get_channels__(self.traces_df)
+        # initial dataframe - collect time grid, initialize self.arrs, get signal gen data
+        df = self.__get_data__(0)
 
-            else:
-                raise Exception(f'could not find {self.trace_file}')
+        t_conv = {'ms': 1e-3}
+        self.ts = df['Time'].values*t_conv[self.units[0]] # seconds
+        self.N = self.ts.size
+
+        self.arrs = {chan: [] for chan in self.channels}
+        if self.sigchan is not None:
+            self.arrs[sigchan] = pico_to_ibias(df[f'Channel {sigchan}'].values*self.conv[sigchan])
+       
+        thisrow = {chan: self.row_avg for chan in self.channels}
+
+        #for i, ix in enumerate(idx):
+        for i, file in enumerate(self.file_list):
+            df = self.__get_data__(i)
+
+            for chan in self.channels:
+                if thisrow[chan] == self.row_avg:
+                    self.arrs[chan].append(np.zeros(len(df)))
+                    thisrow[chan] = 0
+
+                trace = df[f'Channel {chan}'].values
+                if (not any(np.isnan(trace))) and good_trace(trace, chan):
+                    self.arrs[chan][-1] += trace
+                    thisrow[chan] += 1
 
 
-        # take out time array
-        if not self.vstack and 'Time' in self.traces_df.keys():
-            self.ts = self.traces_df['Time'].values/1e3 # seconds
+        for chan in self.channels:
+            if thisrow[chan] < self.row_avg:
+                self.arrs[chan].pop(-1)
 
-            if shift_times:
-
-                backward_jumps = np.where(np.diff(self.ts) < 0)[0][::-1]
-
-                for j in backward_jumps:
-                    self.ts[j+1:] += self.ts[j]
-
-        try:
-            self.N = len(self.ts)
-
-        except: 
-            pass
-
-        if self.vstack:
-            for chan in self.arrs:
-                try:
-                    self.arrs[chan] *= self.conv[chan]
-                except KeyError: # chan not in self.conv
-                    pass
-                except Exception as e:
-                    print(self.conv)
-                    raise Exception(e)
+            self.arrs[chan] = to_ADC(np.array(self.arrs[chan])/self.row_avg, self.config)
 
         print(f'Created new PicoscopeData object with {self.N} data points\nChannels: {self.channels}')
+        # end of PicoscopeData constructor
 
 
     def __call__(self, chan):
-        if self.vstack:
+        if chan in self.arrs.keys():
             return self.arrs[chan]
         else:
-            chan_name = f'Channel {chan}'
-            if chan_name in self.traces_df.keys():
-                return to_ADC(self.conv[chan]*self.traces_df[chan_name].values, self.config)
-            else:
-                raise Exception(f'No channel {chan}')
+            raise Exception(f'no channel "{chan}" in PicoscopeData object. Available channels: {self.channels}')
 
-    def __get_channels__(self, df):
-        self.channels = []
-        for key in df.keys():
-            if 'Channel' in key:
-                x = key.split()[1]
-                if key == f'Channel {x}':
-                    self.channels.append(x)
-
-    def resize(self, start, stop, step = 1):
-        """
-        resize data arrays, i.e., by array[start:stop:step]
-        """
-        keep = slice(start,stop,step)
-        if self.vstack:
-            for k in self.arrs:
-                self.arrs[k] = self.arrs[k][keep]
-            self.ts = self.ts[keep]
-            self.N = self.ts.size
+    
+    def __get_data__(self, i):
+        if i < self.Nfiles:
+            return pd.read_csv(self.file_list[i], skiprows = (1,2), na_values = ["∞", "-∞"]) 
         else:
-            self.traces_df = self.traces_df[keep]
-            self.ts = self.traces_df['Time'].values/1e3
-            self.N = self.ts.size
+            raise Exception(f'no file number {i} in PicoscopeData object with {self.Nfiles} files')
 
+
+    def __get_channels__(self, filename):
+        # conversions to V
+        # defines self.conv, self.units, and self.channels
+        if self.channels is None:
+            with open(filename, 'r') as f:
+                for i, l in enumerate(f):
+                    if i == 0:
+                        header = l.split(',')
+                        
+                    elif i == 1:
+                        self.units = [s.strip().strip('(').strip(')').strip() for s in l.split(',')]
+
+                        self.channels = [c.split()[1][0] for c in header if 'Channel' in c]
+
+                        self.conv = {c: (1. if u == 'V' else 1e-3 if u == 'mV' else 0.) for c, u in zip(self.channels, self.units)} 
+
+                        if self.sigchan in self.channels:
+                            self.channels.remove(self.sigchan)
+
+                        return 
+        else:
+            raise Exception('channels already assigned')
+
+
+    def resize(self, keep):
+        """
+        resize data arrays, i.e., by array[keep]
+        """
+        for k in self.arrs:
+            self.arrs[k] = self.arrs[k][keep]
+        self.ts = self.ts[keep]
+        self.N = self.ts.size
 
 # signal conversion notes
 # 
