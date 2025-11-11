@@ -97,7 +97,7 @@ class PicoscopeData:
         # initial dataframe - collect time grid, initialize self.arrs, get signal gen data
         df = self.__get_data__(0)
 
-        t_conv = {'ms': 1e-3}
+        t_conv = {'ms': 1e-3, 's': 1}
         self.ts = df['Time'].values*t_conv[self.units[0]] # seconds
         self.N = self.ts.size
 
@@ -126,6 +126,10 @@ class PicoscopeData:
             if thisrow[chan] < self.row_avg:
                 self.arrs[chan].pop(-1)
 
+            # # FOR IBIS:
+            # self.arrs[chan] = to_ADC(np.array(self.arrs[chan])/self.row_avg, self.config).flatten()
+
+            # FOR DIDV
             self.arrs[chan] = to_ADC(np.array(self.arrs[chan])/self.row_avg, self.config)
 
         print(f'Created new PicoscopeData object with {self.N} data points\nChannels: {self.channels}')
@@ -174,9 +178,11 @@ class PicoscopeData:
         """
         resize data arrays, i.e., by array[keep]
         """
-        for k in self.arrs:
+        for k in self.channels:#self.arrs:
             self.arrs[k] = self.arrs[k][keep]
-        self.ts = self.ts[keep]
+        if isinstance(keep, np.ndarray):
+            self.ts = self.ts[keep]
+            self.arrs['H'] = self.arrs['H'][keep]
         self.N = self.ts.size
 
 # signal conversion notes
