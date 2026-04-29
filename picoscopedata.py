@@ -126,11 +126,11 @@ class PicoscopeData:
             if thisrow[chan] < self.row_avg:
                 self.arrs[chan].pop(-1)
 
-            # # FOR IBIS:
-            # self.arrs[chan] = to_ADC(np.array(self.arrs[chan])/self.row_avg, self.config).flatten()
+            # FOR IBIS:
+            self.arrs[chan] = to_ADC(np.array(self.arrs[chan])/self.row_avg, self.config).flatten()
 
-            # FOR DIDV
-            self.arrs[chan] = to_ADC(np.array(self.arrs[chan])/self.row_avg, self.config)
+            # # FOR DIDV
+            # self.arrs[chan] = to_ADC(np.array(self.arrs[chan])/self.row_avg, self.config)
 
         print(f'Created new PicoscopeData object with {self.N} data points\nChannels: {self.channels}')
         # end of PicoscopeData constructor
